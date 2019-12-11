@@ -2,6 +2,7 @@ dataset/tacred/
 dataset/glove/
 dataset/vocab/
 saved_models/
+out/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
