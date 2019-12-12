@@ -78,7 +78,8 @@ class FileLogger(object):
     """ A file logger that opens the file periodically and write to it."""
     def __init__(self, filename='logs', header=None):
         # Use time of creating FileLogger object as filename
-        self.filename = filename + '_' + time.strftime("%Y%m%d_%H%M%S", time.localtime())
+        self.filename = filename
+        #  + '_' + time.strftime("%Y%m%d_%H%M%S", time.localtime())
         if header is not None:
             with open(filename, 'w') as out:
                 print(header, file=out)
