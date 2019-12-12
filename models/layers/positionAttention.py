@@ -33,7 +33,7 @@ class PositionAwareAttention(nn.Module):
             self.wlinear = nn.Linear(feature_size, attn_size, bias=False)
         else:
             self.wlinear = None
-        self.glinear = nn.Linear(input_size, attn_size)
+        self.glinear = nn.Linear(input_size, attn_size, bias=False)
         self.tlinear = nn.Linear(attn_size, 1)
         self.init_weights()
 

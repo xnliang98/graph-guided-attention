@@ -42,11 +42,11 @@ def get_parser():
     parser.add_argument('--prune', type=int, default=1, help='prune.')
     parser.add_argument('--rnn_layer', type=int, default=2, help='Num of heads in multi-head attention.')
     parser.add_argument('--rnn_dropout', type=float, default=0.5, help='RNN dropout rate.')
-
+    parser.add_argument('--conv_l2', type=float, default=0, help='L2-weight decay on conv layers only.')
     parser.add_argument('--pe_dim', type=int, default=30, help='Position encoding dimension.')
 
     parser.add_argument('--lr', type=float, default=1.0, help='Applies to sgd and adagrad.')
-    parser.add_argument('--lr_decay', type=float, default=0.9, help='Learning rate decay rate.')
+    parser.add_argument('--lr_decay', type=float, default=0.5, help='Learning rate decay rate.')
     parser.add_argument('--decay_epoch', type=int, default=5, help='Decay learning rate after this epoch.')
     parser.add_argument('--optim', choices=['sgd', 'adagrad', 'adam', 'adamax'], default='sgd', help='Optimizer: sgd, adagrad, adam or adamax.')
     parser.add_argument('--num_epoch', type=int, default=100, help='Number of total training epochs.')

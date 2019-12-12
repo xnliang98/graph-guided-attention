@@ -28,8 +28,11 @@ class GDATrainer(Trainer):
         self.model.train()
         self.optimizer.zero_grad()
 
-        logits = self.model(inputs)
+        logits, conv_l2 = self.model(inputs)
         loss = self.criterion(logits, labels)
+        if self.opt.get('conv_l2', 0) > 0:
+            loss += conv_l2 * self.opt['conv_l2']
+        
         loss_val = loss.item()
 
         # Step 2 backward
@@ -46,8 +49,8 @@ class GDATrainer(Trainer):
         
         self.model.eval()
 
-        logits = self.model(inputs)
-        # logits, _ = self.model(inputs)
+        # logits = self.model(inputs)
+        logits, _ = self.model(inputs)
         loss = self.criterion(logits, labels)
         loss_val = loss.item()
 

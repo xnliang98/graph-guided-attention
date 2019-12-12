@@ -30,7 +30,6 @@ class GDAClassifier(nn.Module):
             self.in_dim += opt['ner_dim']
         
         self.mem_dim = opt['hidden_dim']
-
         input_size = self.in_dim
         self.pe_emb = nn.Embedding(constant.MAX_LEN * 2 + 1, opt['pe_dim'])
         self.rnn = MyRNN(input_size, self.mem_dim // 2, opt['rnn_layer'],
@@ -40,7 +39,6 @@ class GDAClassifier(nn.Module):
         self.in_drop = nn.Dropout(opt['in_dropout'])
         self.drop = nn.Dropout(opt['dropout'])
         self.pos_attn = PositionAwareAttention(self.mem_dim, self.mem_dim, opt['pe_dim'] * 2, self.mem_dim)
-        # self.linear = nn.Linear(self.mem_dim * 4, self.mem_dim)
         self.classifier = nn.Linear(self.mem_dim, opt['num_class'])
 
         self.init_embeddings()
@@ -68,7 +66,6 @@ class GDAClassifier(nn.Module):
         words, masks, pos, ner, deprel, head, subj_pos, obj_pos, subj_type, obj_type = inputs # unpack
         l = (masks.data.cpu().numpy() == 0).astype(np.int64).sum(1)
         maxlen = max(l)
-        src_mask = (words != constant.PAD_ID).unsqueeze(-2)
         word_embs = self.emb(words)
         embs = [word_embs]
 
@@ -90,10 +87,8 @@ class GDAClassifier(nn.Module):
             adj = torch.from_numpy(adj)
             return adj.cuda() if self.opt['cuda'] else adj
         adj = inputs_to_tree_reps(head.data, words.data, l, self.prune, subj_pos.data, obj_pos.data)
-
         gcn_outputs, _ = self.gcn(adj, inputs)
         
-
         out = attention(gcn_outputs, inputs, inputs, masks)
         hidden = torch.cat([hidden[-1, :, :], hidden[-2, :, :]], dim=-1)
         
@@ -104,7 +99,7 @@ class GDAClassifier(nn.Module):
         outputs = self.pos_attn(out, masks, hidden, pe_features, gcn_outputs)
         outputs = self.drop(outputs)
         outputs = self.classifier(outputs)
-        return outputs
+        return outputs, self.gcn.conv_l2()
 
 
 
