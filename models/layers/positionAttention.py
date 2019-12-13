@@ -33,7 +33,7 @@ class PositionAwareAttention(nn.Module):
             self.wlinear = nn.Linear(feature_size, attn_size, bias=False)
         else:
             self.wlinear = None
-        self.glinear = nn.Linear(input_size, attn_size, bias=False)
+        self.glinear = nn.Linear(query_size, attn_size, bias=False)
         self.tlinear = nn.Linear(attn_size, 1)
         self.init_weights()
 
@@ -45,7 +45,7 @@ class PositionAwareAttention(nn.Module):
             self.wlinear.weight.data.normal_(std=0.001)
         self.tlinear.weight.data.zero_() # use zero to give uniform attention at the beginning
     
-    def forward(self, x, x_mask, q, f, g):
+    def forward(self, x, x_mask, f, g, r):
         """
         x : batch_size * seq_len * input_size
         q : batch_size * query_size
@@ -55,7 +55,7 @@ class PositionAwareAttention(nn.Module):
 
         x_proj = self.ulinear(x.contiguous().view(-1, self.input_size)).view(
             batch_size, seq_len, self.attn_size)
-        q_proj = self.vlinear(q).unsqueeze(1).expand(batch_size, seq_len, self.attn_size)
+        q_proj = self.vlinear(r)
         g_proj = self.glinear(g)
         if self.wlinear is not None:
             f_proj = self.wlinear(f.view(-1, self.feature_size)).contiguous().view(
