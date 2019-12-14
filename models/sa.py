@@ -36,9 +36,12 @@ class SegAttnClassifier(nn.Module):
         self.drop = nn.Dropout(opt['dropout'])
         self.conv1 = nn.Conv1d(self.mem_dim, self.mem_dim, 2, padding=0)
         self.conv2 = nn.Conv1d(self.mem_dim, self.mem_dim, 3, padding=1)
-        self.conv3 = nn.Conv1d(self.mem_dim, self.mem_dim, 4, padding=1)
+        # self.conv3 = nn.Conv1d(self.mem_dim, self.mem_dim, 4, padding=1)
+
+        
+
         self.l1 = nn.Linear(self.mem_dim * 3, self.mem_dim)
-        self.l2 = nn.Linear(self.mem_dim * 4, self.mem_dim)
+        self.l2 = nn.Linear(self.mem_dim * 3, self.mem_dim)
         self.classifier = nn.Linear(self.mem_dim, opt['num_class'])
 
         self.init_embeddings()
@@ -94,18 +97,18 @@ class SegAttnClassifier(nn.Module):
         query = self.l1(torch.cat([subj_out, obj_out, hidden], dim=-1))
         key1 = self.conv1(rnn_outputs.permute(0, 2, 1)).permute(0, 2, 1)
         key2 = self.conv2(rnn_outputs.permute(0, 2, 1)).permute(0, 2, 1)
-        key3 = self.conv3(rnn_outputs.permute(0, 2, 1)).permute(0, 2, 1)
+        # key3 = self.conv3(rnn_outputs.permute(0, 2, 1)).permute(0, 2, 1)
         key = torch.cat([key1, key2, rnn_outputs], dim=1)
         pad = torch.zeros(key2.size(0), 1, key2.size(2)).cuda()
         key1 = torch.cat([key1, pad], dim=1)
-        key3 = torch.cat([key3, pad], dim=1)
-
+        # key3 = torch.cat([key3, pad], dim=1)
+        
         out1 = attention(query, rnn_outputs, rnn_outputs, masks)
         out2 = attention(query, key1, key1, masks)
         out3 = attention(query, key2, key2, masks)
-        out4 = attention(query, key3, key3, masks)
+        # out4 = attention(query, key3, key3, masks)
 
-        outputs = torch.cat([out1, out2, out3, out4], dim=-1)
+        outputs = torch.cat([out1, out2, out3], dim=-1)
         outputs = self.l2(outputs)
 
         outputs = self.drop(outputs)
