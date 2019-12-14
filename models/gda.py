@@ -32,7 +32,7 @@ class GDAClassifier(nn.Module):
         self.mem_dim = opt['hidden_dim']
         input_size = self.in_dim
         self.pe_emb = nn.Embedding(constant.MAX_LEN * 2 + 1, opt['pe_dim'])
-        self.transformer = TransformerModel(input_size, self.mem_dim, 4, 2)
+        self.transformer = TransformerModel(input_size, self.mem_dim, 3, 1)
         self.rnn = MyRNN(self.mem_dim, self.mem_dim // 2, opt['rnn_layer'],
             bidirectional=True, dropout=opt['rnn_dropout'], use_cuda=opt['cuda'])
  
@@ -40,7 +40,7 @@ class GDAClassifier(nn.Module):
         self.in_drop = nn.Dropout(opt['in_dropout'])
         self.drop = nn.Dropout(opt['dropout'])
         self.pos_attn = PositionAwareAttention(self.mem_dim, self.mem_dim, opt['pe_dim'] * 2, self.mem_dim)
-        self.linear = nn.Linear(self.mem_dim * 4, self.mem_dim)
+        self.linear = nn.Linear(self.mem_dim * 2, self.mem_dim)
         self.out = nn.Linear(self.mem_dim * 3, self.mem_dim)
         self.classifier = nn.Linear(self.mem_dim, opt['num_class'])
 
@@ -93,11 +93,11 @@ class GDAClassifier(nn.Module):
         gcn_masks = (adj.sum(1) + adj.sum(2)).eq(0).unsqueeze(2)
 
         gcn_outputs, _ = self.gcn(adj, inputs)
-        rnn_outputs, hidden = self.rnn(inputs, masks)
+        # rnn_outputs, hidden = self.rnn(inputs, masks)
         out1 = attention(gcn_outputs, inputs, inputs, masks)
-        out2 = attention(rnn_outputs, inputs, inputs, masks)
+        # out2 = attention(rnn_outputs, inputs, inputs, masks)
         # hidden = torch.cat([hidden[-1, :, :], hidden[-2, :, :]], dim=-1)
-        out = self.linear(torch.cat([out1, out2, gcn_outputs, rnn_outputs], dim=-1))
+        out = self.linear(torch.cat([out1, gcn_outputs], dim=-1))
         # subj_pe_inputs = self.pe_emb(subj_pos + constant.MAX_LEN)
         # obj_pe_inputs = self.pe_emb(obj_pos + constant.MAX_LEN)
         # pe_features = torch.cat((subj_pe_inputs, obj_pe_inputs), dim=2)
