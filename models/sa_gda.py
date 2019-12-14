@@ -13,6 +13,7 @@ class SegAttnClassifier(nn.Module):
     def __init__(self, opt, emb_matrix=None):
         super(SegAttnClassifier, self).__init__()
         self.opt = opt
+        self.prune = opt['prune']
         self.emb_matrix = emb_matrix
         self.emb = nn.Embedding(opt['vocab_size'], opt['emb_dim'], padding_idx=constant.PAD_ID)
         self.pos_emb = nn.Embedding(len(constant.POS_TO_ID), opt['pos_dim']) if opt['pos_dim'] > 0 else None
@@ -34,14 +35,16 @@ class SegAttnClassifier(nn.Module):
  
         self.in_drop = nn.Dropout(opt['in_dropout'])
         self.drop = nn.Dropout(opt['dropout'])
-        # self.conv1 = nn.Conv1d(self.mem_dim, self.mem_dim, 2, padding=0)
+
         self.conv2 = nn.Conv1d(self.mem_dim, self.mem_dim, 3, padding=1)
 
-
-        
+        self.gcn = GCNLayer(self.mem_dim, self.mem_dim, opt['gcn_layer'], opt['gcn_dropout'])
 
         self.l1 = nn.Linear(self.mem_dim * 3, self.mem_dim)
-        self.l2 = nn.Linear(self.mem_dim * 2, self.mem_dim)
+        self.l2 = nn.Linear(self.mem_dim * 3, self.mem_dim)
+
+        self.gl1 = nn.Linear(self.mem_dim * 3, self.mem_dim)
+        self.gl2 = nn.Linear(self.mem_dim * 2, self.mem_dim)
         self.classifier = nn.Linear(self.mem_dim, opt['num_class'])
 
         self.init_embeddings()
@@ -95,19 +98,32 @@ class SegAttnClassifier(nn.Module):
         obj_out = pool(rnn_outputs, obj_mask, "max")
 
         query = self.l1(torch.cat([subj_out, obj_out, hidden], dim=-1))
-        # key1 = self.conv1(rnn_outputs.permute(0, 2, 1)).permute(0, 2, 1)
+
         key2 = self.conv2(rnn_outputs.permute(0, 2, 1)).permute(0, 2, 1)
-      
-        # key = torch.cat([key1, key2, rnn_outputs], dim=1)
-        # pad = torch.zeros(key2.size(0), 1, key2.size(2)).cuda()
-        # key1 = torch.cat([key1, pad], dim=1)
-        
 
         out1 = attention(query, rnn_outputs, rnn_outputs, masks)
         # out2 = attention(query, key1, key1, masks)
         out3 = attention(query, key2, key2, masks)
 
-        outputs = torch.cat([out1, out3], dim=-1)
+        def inputs_to_tree_reps(head, words, l, prune, subj_pos, obj_pos):
+            head, words, subj_pos, obj_pos = head.cpu().numpy(), words.cpu().numpy(), subj_pos.cpu().numpy(), obj_pos.cpu().numpy()
+            trees = [head_to_tree(head[i], words[i], l[i], prune, subj_pos[i], obj_pos[i]) for i in range(len(l))]
+            adj = [tree_to_adj(maxlen, tree, directed=False, self_loop=False).reshape(1, maxlen, maxlen) for tree in trees]
+            adj = np.concatenate(adj, axis=0)
+            adj = torch.from_numpy(adj)
+            return adj.cuda() if self.opt['cuda'] else adj
+        adj = inputs_to_tree_reps(head.data, words.data, l, self.prune, subj_pos.data, obj_pos.data)
+        gcn_masks = (adj.sum(1) + adj.sum(2)).eq(0).unsqueeze(2)
+        gcn_outputs, _ = self.gcn(adj, rnn_outputs)
+
+
+        h1 = pool(gcn_outputs, subj_mask, "max")
+        h2 = pool(gcn_outputs, obj_mask, "max")
+        h0 = pool(gcn_outputs, gcn_masks, "max")
+        gcn_query = self.gl1(torch.cat([h0, h1, h2], dim=-1))
+        out2 = attention(gcn_query, gcn_outputs, gcn_outputs, masks)
+
+        outputs = torch.cat([out1, out2, out3], dim=-1)
         outputs = self.l2(outputs)
 
         outputs = self.drop(outputs)
