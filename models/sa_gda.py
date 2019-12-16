@@ -36,20 +36,24 @@ class SegAttnClassifier(nn.Module):
         self.in_drop = nn.Dropout(opt['in_dropout'])
         self.drop = nn.Dropout(opt['dropout'])
 
-        self.conv2 = nn.Conv1d(self.mem_dim, self.mem_dim, 3, padding=1)
+        self.conv_2 = nn.Conv1d(self.mem_dim, self.mem_dim, 2, padding=0)
+        self.conv_3 = nn.Conv1d(self.mem_dim, self.mem_dim, 3, padding=1)
 
         self.gcn = GCNLayer(self.mem_dim, self.mem_dim, opt['gcn_layer'], opt['gcn_dropout'])
 
         self.l1 = nn.Linear(self.mem_dim * 3, self.mem_dim)
         self.l2 = nn.Linear(self.mem_dim * 3, self.mem_dim)
-
-        self.gl1 = nn.Linear(self.mem_dim * 3, self.mem_dim)
-        self.gl2 = nn.Linear(self.mem_dim * 2, self.mem_dim)
+        self.l3 = nn.Linear(self.mem_dim * 3, self.mem_dim)
+        self.l4 = nn.Linear(self.mem_dim * 4, self.mem_dim)
         self.classifier = nn.Linear(self.mem_dim, opt['num_class'])
 
         self.init_embeddings()
 
     def init_embeddings(self):
+        nn.init.xavier_normal_(self.l1.weight)
+        nn.init.xavier_normal_(self.l2.weight)
+        nn.init.xavier_normal_(self.l3.weight)
+        nn.init.xavier_normal_(self.l4.weight)
         if self.opt['pe_dim'] > 0:
             self.pe_emb.weight.data.uniform_(-1.0, 1.0)
         if self.opt['ner_dim'] > 0:
@@ -93,43 +97,59 @@ class SegAttnClassifier(nn.Module):
         rnn_outputs, hidden = self.rnn(embs, masks)
         hidden = torch.cat([hidden[-1, :, :], hidden[-2, :, :]], dim=-1)
 
+        # def inputs_to_tree_reps(head, words, l, prune, subj_pos, obj_pos):
+        #     head, words, subj_pos, obj_pos = head.cpu().numpy(), words.cpu().numpy(), subj_pos.cpu().numpy(), obj_pos.cpu().numpy()
+        #     trees = [head_to_tree(head[i], words[i], l[i], prune, subj_pos[i], obj_pos[i]) for i in range(len(l))]
+        #     adj = [tree_to_adj(maxlen, tree, directed=False, self_loop=False).reshape(1, maxlen, maxlen) for tree in trees]
+        #     adj = np.concatenate(adj, axis=0)
+        #     adj = torch.from_numpy(adj)
+        #     return adj.cuda() if self.opt['cuda'] else adj
+        # adj = inputs_to_tree_reps(head.data, words.data, l, self.prune, subj_pos.data, obj_pos.data)
+        # gcn_masks = (adj.sum(1) + adj.sum(2)).eq(0).unsqueeze(2)
+        # gcn_outputs, _ = self.gcn(adj, rnn_outputs)
+
+        # gda
+        # gda_outputs = Qattention(gcn_outputs, rnn_outputs, rnn_outputs)
+        # print(gcn_outputs.shape, gda_outputs.shape)
+        # outputs = torch.cat([gda_outputs, gcn_outputs, rnn_outputs], dim=-1)
+        # outputs = gcn_outputs
+        segment_2 = F.relu(self.conv_2(rnn_outputs.permute(0, 2, 1)).permute(0, 2, 1))
+        segment_3 = F.relu(self.conv_3(rnn_outputs.permute(0, 2, 1)).permute(0, 2, 1))
+        pad = torch.zeros(embs.size(0), 1, self.mem_dim).cuda()
+        segment_2 = torch.cat([segment_2, pad], dim=1)
+
         subj_mask, obj_mask = subj_pos.eq(0).eq(0).unsqueeze(2), obj_pos.eq(0).eq(0).unsqueeze(2)
-        subj_out = pool(rnn_outputs, subj_mask, "max")
-        obj_out = pool(rnn_outputs, obj_mask, "max")
+        e1 = pool(rnn_outputs, subj_mask, "max")
+        e2 = pool(rnn_outputs, obj_mask, "max")
+      
+        query_ent = self.l1(torch.cat([hidden, e1, e2], dim=-1))
+        out1 = attention(query_ent, rnn_outputs, rnn_outputs, masks)
 
-        query = self.l1(torch.cat([subj_out, obj_out, hidden], dim=-1))
+        h1 = attention(e1, rnn_outputs, rnn_outputs, masks)
+        h2 = attention(e2, rnn_outputs, rnn_outputs, masks)
+        h0 = attention(hidden, rnn_outputs, rnn_outputs, masks)
 
-        key2 = self.conv2(rnn_outputs.permute(0, 2, 1)).permute(0, 2, 1)
+        query_men = self.l2(torch.cat([h0, h1, h2], dim=-1))
+        out2 = attention(query_men, rnn_outputs, rnn_outputs, masks)
 
-        out1 = attention(query, rnn_outputs, rnn_outputs, masks)
-        # out2 = attention(query, key1, key1, masks)
-        out3 = attention(query, key2, key2, masks)
+        # s1 = pool(segment, subj_mask, "max")
+        # s2 = pool(segment, obj_mask, "max")
+        # s0 = pool(segment, masks.unsqueeze(2), "max")
 
-        def inputs_to_tree_reps(head, words, l, prune, subj_pos, obj_pos):
-            head, words, subj_pos, obj_pos = head.cpu().numpy(), words.cpu().numpy(), subj_pos.cpu().numpy(), obj_pos.cpu().numpy()
-            trees = [head_to_tree(head[i], words[i], l[i], prune, subj_pos[i], obj_pos[i]) for i in range(len(l))]
-            adj = [tree_to_adj(maxlen, tree, directed=False, self_loop=False).reshape(1, maxlen, maxlen) for tree in trees]
-            adj = np.concatenate(adj, axis=0)
-            adj = torch.from_numpy(adj)
-            return adj.cuda() if self.opt['cuda'] else adj
-        adj = inputs_to_tree_reps(head.data, words.data, l, self.prune, subj_pos.data, obj_pos.data)
-        gcn_masks = (adj.sum(1) + adj.sum(2)).eq(0).unsqueeze(2)
-        gcn_outputs, _ = self.gcn(adj, rnn_outputs)
+        # query_seg = self.l3(torch.cat([s0, s1, s2], dim=-1))
+        out3 = attention(query_men, segment_2, segment_2, masks)
+
+        # query_seg = self.l3(torch.cat([s0, s1, s2], dim=-1))
+        out4 = attention(query_men, segment_3, segment_3, masks)
 
 
-        h1 = pool(gcn_outputs, subj_mask, "max")
-        h2 = pool(gcn_outputs, obj_mask, "max")
-        h0 = pool(gcn_outputs, gcn_masks, "max")
-        gcn_query = self.gl1(torch.cat([h0, h1, h2], dim=-1))
-        out2 = attention(gcn_query, gcn_outputs, gcn_outputs, masks)
+        outputs = torch.cat([out1, out2, out3, out4], dim=-1)
 
-        outputs = torch.cat([out1, out2, out3], dim=-1)
-        outputs = self.l2(outputs)
+        outputs = F.relu(self.l4(outputs))
 
         outputs = self.drop(outputs)
         outputs = self.classifier(outputs)
         return outputs
-
 
 
 def attention(query, key, value, mask=None, dropout=None):
