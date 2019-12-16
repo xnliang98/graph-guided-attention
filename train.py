@@ -1,7 +1,3 @@
-"""
-Train a model on TACRED.
-"""
-
 import os
 import sys
 from datetime import datetime
@@ -15,7 +11,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 from data.loader import DataLoader
-from trainer import GDATrainer
+from trainer import MTATrainer
 from utils import torch_utils, scorer, constant, helper
 from utils.vocab import Vocab
 
@@ -26,10 +22,8 @@ def get_parser():
     parser.add_argument('--emb_dim', type=int, default=300, help='Word embedding dimension.')
     parser.add_argument('--ner_dim', type=int, default=30, help='NER embedding dimension.')
     parser.add_argument('--pos_dim', type=int, default=30, help='POS embedding dimension.')
-    parser.add_argument('--hidden_dim', type=int, default=300, help='RNN hidden state size.')
-
-    parser.add_argument('--gcn_dropout', type=float, default=0.5, help='GCN layer dropout rate.')
-    parser.add_argument('--gcn_layer', type=int, default=4, help='Num of GCN layers.')
+    parser.add_argument('--pe_dim', type=int, default=30, help='POS embedding dimension.')
+    parser.add_argument('--hidden_dim', type=int, default=200, help='RNN hidden state size.')
 
     parser.add_argument('--dropout', type=float, default=0.5, help='Output dropout rate.')
     parser.add_argument('--in_dropout', type=float, default=0.5, help='Input dropout rate.')
@@ -39,22 +33,19 @@ def get_parser():
     parser.add_argument('--no-lower', dest='lower', action='store_false')
     parser.set_defaults(lower=False)
 
-    parser.add_argument('--prune', type=int, default=1, help='prune.')
-    parser.add_argument('--rnn_layer', type=int, default=2, help='Num of heads in multi-head attention.')
+    parser.add_argument('--rnn_layer', type=int, default=1, help='Num of heads in multi-head attention.')
     parser.add_argument('--rnn_dropout', type=float, default=0.5, help='RNN dropout rate.')
-    parser.add_argument('--conv_l2', type=float, default=0, help='L2-weight decay on conv layers only.')
-    parser.add_argument('--pe_dim', type=int, default=30, help='Position encoding dimension.')
 
     parser.add_argument('--lr', type=float, default=1.0, help='Applies to sgd and adagrad.')
     parser.add_argument('--lr_decay', type=float, default=0.5, help='Learning rate decay rate.')
     parser.add_argument('--decay_epoch', type=int, default=5, help='Decay learning rate after this epoch.')
     parser.add_argument('--optim', choices=['sgd', 'adagrad', 'adam', 'adamax'], default='sgd', help='Optimizer: sgd, adagrad, adam or adamax.')
-    parser.add_argument('--num_epoch', type=int, default=100, help='Number of total training epochs.')
+    parser.add_argument('--num_epoch', type=int, default=30, help='Number of total training epochs.')
     parser.add_argument('--batch_size', type=int, default=50, help='Training batch size.')
     parser.add_argument('--max_grad_norm', type=float, default=5.0, help='Gradient clipping.')
     parser.add_argument('--log_step', type=int, default=20, help='Print log every k steps.')
     parser.add_argument('--log', type=str, default='logs', help='Write training log to file.')
-    parser.add_argument('--save_epoch', type=int, default=100, help='Save model checkpoints every k epochs.')
+    parser.add_argument('--save_epoch', type=int, default=10, help='Save model checkpoints every k epochs.')
     parser.add_argument('--save_dir', type=str, default='./saved_models', help='Root dir for saving models.')
     parser.add_argument('--id', type=str, default='00', help='Model ID under which to save models.')
     parser.add_argument('--info', type=str, default='', help='Optional info for the experiment.')
@@ -98,8 +89,6 @@ def main():
     print("Loading data from {} with batch size {}...".format(opt['data_dir'], opt['batch_size']))
     train_batch = DataLoader(opt['data_dir'] + '/train.json', opt['batch_size'], opt, vocab, evaluation=False)
     dev_batch = DataLoader(opt['data_dir'] + '/dev.json', opt['batch_size'], opt, vocab, evaluation=True)
-    # train_batch = DataLoader(opt['data_dir'] + '/full_train.json', opt['batch_size'], opt, vocab, evaluation=False)
-    # dev_batch = DataLoader(opt['data_dir'] + '/test.json', opt['batch_size'], opt, vocab, evaluation=True)
     model_id = opt['id'] if len(opt['id']) > 1 else '0' + opt['id']
     model_save_dir = opt['save_dir'] + '/' + model_id
     opt['model_save_dir'] = model_save_dir
@@ -115,14 +104,14 @@ def main():
 
     # model
     if not opt['load']:
-        trainer = GDATrainer(opt, emb_matrix=emb_matrix)
+        trainer = MTATrainer(opt, emb_matrix=emb_matrix)
     else:
         # load pretrained model
         model_file = opt['model_file'] 
         print("Loading model from {}".format(model_file))
         model_opt = torch_utils.load_config(model_file)
         model_opt['optim'] = opt['optim']
-        trainer = GCNTrainer(model_opt)
+        trainer = MTATrainer(model_opt)
         trainer.load(model_file)   
 
     id2label = dict([(v,k) for k,v in label2id.items()])

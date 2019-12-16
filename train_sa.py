@@ -23,7 +23,7 @@ def get_parser():
     parser.add_argument('--ner_dim', type=int, default=30, help='NER embedding dimension.')
     parser.add_argument('--pos_dim', type=int, default=30, help='POS embedding dimension.')
     parser.add_argument('--pe_dim', type=int, default=30, help='POS embedding dimension.')
-    parser.add_argument('--hidden_dim', type=int, default=300, help='RNN hidden state size.')
+    parser.add_argument('--hidden_dim', type=int, default=200, help='RNN hidden state size.')
 
     parser.add_argument('--dropout', type=float, default=0.5, help='Output dropout rate.')
     parser.add_argument('--in_dropout', type=float, default=0.5, help='Input dropout rate.')
@@ -33,18 +33,14 @@ def get_parser():
     parser.add_argument('--no-lower', dest='lower', action='store_false')
     parser.set_defaults(lower=False)
 
-    parser.add_argument('--rnn_layer', type=int, default=2, help='Num of heads in multi-head attention.')
+    parser.add_argument('--rnn_layer', type=int, default=1, help='Num of heads in multi-head attention.')
     parser.add_argument('--rnn_dropout', type=float, default=0.5, help='RNN dropout rate.')
 
-    parser.add_argument('--prune', type=int, default=1, help='prune.')
-    parser.add_argument('--gcn_dropout', type=float, default=0.5, help='GCN layer dropout rate.')
-    parser.add_argument('--gcn_layer', type=int, default=2, help='Num of GCN layers.')
-
     parser.add_argument('--lr', type=float, default=1.0, help='Applies to sgd and adagrad.')
-    parser.add_argument('--lr_decay', type=float, default=0.9, help='Learning rate decay rate.')
+    parser.add_argument('--lr_decay', type=float, default=0.5, help='Learning rate decay rate.')
     parser.add_argument('--decay_epoch', type=int, default=5, help='Decay learning rate after this epoch.')
     parser.add_argument('--optim', choices=['sgd', 'adagrad', 'adam', 'adamax'], default='sgd', help='Optimizer: sgd, adagrad, adam or adamax.')
-    parser.add_argument('--num_epoch', type=int, default=100, help='Number of total training epochs.')
+    parser.add_argument('--num_epoch', type=int, default=30, help='Number of total training epochs.')
     parser.add_argument('--batch_size', type=int, default=50, help='Training batch size.')
     parser.add_argument('--max_grad_norm', type=float, default=5.0, help='Gradient clipping.')
     parser.add_argument('--log_step', type=int, default=20, help='Print log every k steps.')
@@ -93,8 +89,6 @@ def main():
     print("Loading data from {} with batch size {}...".format(opt['data_dir'], opt['batch_size']))
     train_batch = DataLoader(opt['data_dir'] + '/train.json', opt['batch_size'], opt, vocab, evaluation=False)
     dev_batch = DataLoader(opt['data_dir'] + '/dev.json', opt['batch_size'], opt, vocab, evaluation=True)
-    # train_batch = DataLoader(opt['data_dir'] + '/full_train.json', opt['batch_size'], opt, vocab, evaluation=False)
-    # dev_batch = DataLoader(opt['data_dir'] + '/test.json', opt['batch_size'], opt, vocab, evaluation=True)
     model_id = opt['id'] if len(opt['id']) > 1 else '0' + opt['id']
     model_save_dir = opt['save_dir'] + '/' + model_id
     opt['model_save_dir'] = model_save_dir
