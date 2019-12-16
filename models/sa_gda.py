@@ -31,7 +31,7 @@ class SegAttnClassifier(nn.Module):
         self.mem_dim = opt['hidden_dim']
         
         self.rnn = MyRNN(self.in_dim, self.mem_dim // 2, opt['rnn_layer'],
-            bidirectional=True, dropout=opt['rnn_dropout'], use_cuda=opt['cuda'])
+            bidirectional=True, use_cuda=opt['cuda'])
  
         self.in_drop = nn.Dropout(opt['in_dropout'])
         self.drop = nn.Dropout(opt['dropout'])
@@ -39,10 +39,9 @@ class SegAttnClassifier(nn.Module):
         self.conv_2 = nn.Conv1d(self.mem_dim, self.mem_dim, 2, padding=0)
         self.conv_3 = nn.Conv1d(self.mem_dim, self.mem_dim, 3, padding=1)
 
-        self.gcn = GCNLayer(self.mem_dim, self.mem_dim, opt['gcn_layer'], opt['gcn_dropout'])
-
-        self.l1 = nn.Linear(self.mem_dim * 3, self.mem_dim)
-        self.l2 = nn.Linear(self.mem_dim * 3, self.mem_dim)
+        self.l0 = nn.Linear(self.mem_dim * 3, self.mem_dim)
+        self.l1 = nn.Linear(self.mem_dim * 2, self.mem_dim)
+        self.l2 = nn.Linear(self.mem_dim * 2, self.mem_dim)
         self.l3 = nn.Linear(self.mem_dim * 3, self.mem_dim)
         self.l4 = nn.Linear(self.mem_dim * 4, self.mem_dim)
         self.classifier = nn.Linear(self.mem_dim, opt['num_class'])
@@ -50,6 +49,7 @@ class SegAttnClassifier(nn.Module):
         self.init_embeddings()
 
     def init_embeddings(self):
+        nn.init.xavier_normal_(self.l0.weight)
         nn.init.xavier_normal_(self.l1.weight)
         nn.init.xavier_normal_(self.l2.weight)
         nn.init.xavier_normal_(self.l3.weight)
@@ -92,58 +92,54 @@ class SegAttnClassifier(nn.Module):
             embs += [self.pe_emb(subj_pos + constant.MAX_LEN)]
             embs += [self.pe_emb(obj_pos + constant.MAX_LEN)]
         
+        # Embedding of word and pos and ner and position
         embs = torch.cat(embs, dim=2)
+        # Dorpout of input
         embs = self.in_drop(embs)
+
+        # Encoder Layer
         rnn_outputs, hidden = self.rnn(embs, masks)
         hidden = torch.cat([hidden[-1, :, :], hidden[-2, :, :]], dim=-1)
 
-        # def inputs_to_tree_reps(head, words, l, prune, subj_pos, obj_pos):
-        #     head, words, subj_pos, obj_pos = head.cpu().numpy(), words.cpu().numpy(), subj_pos.cpu().numpy(), obj_pos.cpu().numpy()
-        #     trees = [head_to_tree(head[i], words[i], l[i], prune, subj_pos[i], obj_pos[i]) for i in range(len(l))]
-        #     adj = [tree_to_adj(maxlen, tree, directed=False, self_loop=False).reshape(1, maxlen, maxlen) for tree in trees]
-        #     adj = np.concatenate(adj, axis=0)
-        #     adj = torch.from_numpy(adj)
-        #     return adj.cuda() if self.opt['cuda'] else adj
-        # adj = inputs_to_tree_reps(head.data, words.data, l, self.prune, subj_pos.data, obj_pos.data)
-        # gcn_masks = (adj.sum(1) + adj.sum(2)).eq(0).unsqueeze(2)
-        # gcn_outputs, _ = self.gcn(adj, rnn_outputs)
-
-        # gda
-        # gda_outputs = Qattention(gcn_outputs, rnn_outputs, rnn_outputs)
-        # print(gcn_outputs.shape, gda_outputs.shape)
-        # outputs = torch.cat([gda_outputs, gcn_outputs, rnn_outputs], dim=-1)
-        # outputs = gcn_outputs
+        # 2-gram
         segment_2 = F.relu(self.conv_2(rnn_outputs.permute(0, 2, 1)).permute(0, 2, 1))
-        segment_3 = F.relu(self.conv_3(rnn_outputs.permute(0, 2, 1)).permute(0, 2, 1))
         pad = torch.zeros(embs.size(0), 1, self.mem_dim).cuda()
         segment_2 = torch.cat([segment_2, pad], dim=1)
-
+        # 3-gram
+        segment_3 = F.relu(self.conv_3(rnn_outputs.permute(0, 2, 1)).permute(0, 2, 1))
+        
+        # Mask of subj and obj to get max hidden varibale of subj and obj
         subj_mask, obj_mask = subj_pos.eq(0).eq(0).unsqueeze(2), obj_pos.eq(0).eq(0).unsqueeze(2)
         e1 = pool(rnn_outputs, subj_mask, "max")
         e2 = pool(rnn_outputs, obj_mask, "max")
-      
-        query_ent = self.l1(torch.cat([hidden, e1, e2], dim=-1))
-        out1 = attention(query_ent, rnn_outputs, rnn_outputs, masks)
+
+        out_list = []
+        # hidden entities to get information for relation 
+        query_ent = self.l0(torch.cat([hidden, e1, e2], dim=-1))
+        out_list.append(attention(query_ent, rnn_outputs, rnn_outputs, masks))
 
         h1 = attention(e1, rnn_outputs, rnn_outputs, masks)
         h2 = attention(e2, rnn_outputs, rnn_outputs, masks)
         h0 = attention(hidden, rnn_outputs, rnn_outputs, masks)
+        # out_list.append(h0)
 
-        query_men = self.l2(torch.cat([h0, h1, h2], dim=-1))
-        out2 = attention(query_men, rnn_outputs, rnn_outputs, masks)
+        query_men = self.l1(torch.cat([h1, h2], dim=-1))
+        men_out = attention(query_men, rnn_outputs, rnn_outputs, masks)
+        out_list.append(men_out)
 
-        # s1 = pool(segment, subj_mask, "max")
-        # s2 = pool(segment, obj_mask, "max")
-        # s0 = pool(segment, masks.unsqueeze(2), "max")
+        out_seg2 = attention(query_men, segment_2, segment_2, masks)
+        out_seg3 = attention(query_men, segment_3, segment_3, masks)
+        out_list.append(out_seg2)
+        out_list.append(out_seg3)
 
-        # query_seg = self.l3(torch.cat([s0, s1, s2], dim=-1))
-        out3 = attention(query_men, segment_2, segment_2, masks)
+        # query_seg = self.l2(torch.cat([men_out, h0], dim=-1))
+        # out_seg2 = attention(query_seg, segment_2, segment_2, masks)
+        # out_seg3 = attention(query_seg, segment_3, segment_3, masks)
+        # out_list.append(out_seg2)
+        # out_list.append(out_seg3)
+        
 
-        # query_seg = self.l3(torch.cat([s0, s1, s2], dim=-1))
-        out4 = attention(query_men, segment_3, segment_3, masks)
-
-
-        outputs = torch.cat([out1, out2, out3, out4], dim=-1)
+        outputs = torch.cat(out_list, dim=-1)
 
         outputs = F.relu(self.l4(outputs))
 
