@@ -38,6 +38,7 @@ class MTAClassifier(nn.Module):
 
         self.l0 = nn.Linear(self.mem_dim * 3, self.mem_dim)
         self.l1 = nn.Linear(self.mem_dim * 2, self.mem_dim)
+        # tricks
         self.l2 = nn.Linear(self.mem_dim * 2, self.mem_dim)
         self.l3 = nn.Linear(self.mem_dim * 3, self.mem_dim)
         self.l4 = nn.Linear(self.mem_dim * 4, self.mem_dim)
@@ -80,7 +81,7 @@ class MTAClassifier(nn.Module):
         maxlen = max(l)
         word_embs = self.emb(words)
         embs = [word_embs]
-
+        # embedding 
         if self.opt['pos_dim'] > 0:
             embs += [self.pos_emb(pos)]
         if self.opt['ner_dim'] > 0:
@@ -110,27 +111,32 @@ class MTAClassifier(nn.Module):
         e1 = pool(rnn_outputs, subj_mask, "max")
         e2 = pool(rnn_outputs, obj_mask, "max")
 
+        # out layer features
         out_list = []
-        # hidden entities to get information for relation 
+        # hidden and entities to get information for relation 
         query_ent = self.l0(torch.cat([hidden, e1, e2], dim=-1))
         out_list.append(attention(query_ent, rnn_outputs, rnn_outputs, masks))
 
+        # mention attention
         h1 = attention(e1, rnn_outputs, rnn_outputs, masks)
         h2 = attention(e2, rnn_outputs, rnn_outputs, masks)
         h0 = attention(hidden, rnn_outputs, rnn_outputs, masks)
         # out_list.append(h0)
 
+        # mention query
         query_men = self.l1(torch.cat([h1, h2], dim=-1))
+        # mention query sent attention
         men_out = attention(query_men, rnn_outputs, rnn_outputs, masks)
         out_list.append(men_out)
 
+        # mention query segment attention 2 and 3
         out_seg2 = attention(query_men, segment_2, segment_2, masks)
         out_seg3 = attention(query_men, segment_3, segment_3, masks)
         out_list.append(out_seg2)
         out_list.append(out_seg3)
         
         outputs = torch.cat(out_list, dim=-1)
-
+        # Output layer
         outputs = F.relu(self.l4(outputs))
 
         outputs = self.drop(outputs)

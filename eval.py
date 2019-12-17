@@ -11,7 +11,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 from data.loader import DataLoader
-from trainer import MTATrainer
+from trainer import MTATrainer, SATrainer
 from utils import torch_utils, scorer, constant, helper
 from utils.vocab import Vocab
 
